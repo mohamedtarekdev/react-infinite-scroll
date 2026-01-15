@@ -1,33 +1,96 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import viteLogo from "/vite.svg";
-import "./App.css";
+import axios from "axios";
+import { useEffect, useState, useRef, useCallback } from "react";
 
 function App() {
-  const [count, setCount] = useState(0);
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
 
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [books, setBooks] = useState([]);
+
+  const [hasMore, setHasMore] = useState(false);
+
+  const observer = useRef();
+  const lastBookElementRef = useCallback(
+    (node) => {
+      if (loading) return;
+      if (observer.current) observer.current.disconnect();
+      observer.current = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && hasMore) {
+          setPage((prevPage) => prevPage + 1);
+        }
+      });
+      if (node) observer.current.observe(node);
+    },
+    [loading, hasMore]
+  );
+
+  useEffect(() => {
+    setBooks([]);
+  }, [query]);
+
+  const handleSearch = (e) => {
+    setQuery(e.target.value);
+    setPage(1);
+  };
+
+  useEffect(() => {
+    setLoading(true);
+    setError(false);
+    let cancel;
+    axios({
+      url: "https://openlibrary.org/search.json",
+      method: "GET",
+      params: {
+        q: query,
+        page,
+        limit: 30,
+      },
+      cancelToken: new axios.CancelToken((c) => (cancel = c)),
+    })
+      .then((res) => {
+        setBooks((prevBooks) => {
+          return [
+            ...new Set([...prevBooks, ...res.data.docs.map((b) => b.title)]),
+          ];
+        });
+        setHasMore(res.data.docs.length > 0);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (axios.isCancel(err)) return;
+        setError(true);
+      });
+
+    return () => cancel();
+  }, [query, page]);
   return (
     <>
       <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+        <h1>Book Search</h1>
+        <input
+          style={{ width: "300px", height: "30px", marginBottom: "20px" }}
+          type="text"
+          value={query}
+          onChange={handleSearch}
+        />
+        <div>
+          {books.map((b, i) => {
+            if (books.length === i + 1) {
+              return (
+                <div ref={lastBookElementRef} key={b}>
+                  {b}
+                </div>
+              );
+            } else {
+              return <div key={b}>{b}</div>;
+            }
+          })}
+        </div>
       </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
+      {loading && <div>Loading...</div>}
+      {error && <div>Something went wrong</div>}
     </>
   );
 }
